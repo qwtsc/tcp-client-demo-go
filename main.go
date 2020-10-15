@@ -60,15 +60,25 @@ func readResp(conn *bufio.ReadWriter) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(resp)
+	fmt.Print(resp)
 
 }
 
-func sendCommand(command string) {
-	fmt.Fprintln(conn, command)
-	conn.Flush()
+func sendCommand(command string) error {
+	command = command + "\r\n"
+	n, err := conn.WriteString(command)
+	if n != len(command) {
+		return fmt.Errorf("expected to write %d bytes, but wrote %d", len(command), n)
+	}
+	if err != nil {
+		return err
+	}
+	if err = conn.Flush(); err!=nil {
+		return err
+	}
 	fmt.Println(command)
 	readResp(conn)
+	return nil
 }
 
 func singleSchedule() {
