@@ -17,41 +17,23 @@ type Config struct {
 	Password string `yaml:"password"`
 }
 
-var conn *bufio.ReadWriter
-var mailDialer *mail.Dialer
-var alertMessage *mail.Message
-
-func init() {
-	config := Config{}
-	content, err := ioutil.ReadFile("config.yaml")
-	if err != nil {
-		panic(err)
-	}
-	if err = yaml.Unmarshal(content, &config); err != nil {
-		panic(err)
-	}
-	tcpConn, err := net.Dial("tcp", "192.168.2.155:8813")
-	if err != nil {
-		panic(err)
-	}
-	conn = bufio.NewReadWriter(bufio.NewReader(tcpConn), bufio.NewWriter(tcpConn))
-	readResp(conn)
-	alertMessage = mail.NewMessage()
-	alertMessage.SetHeader("From", "shenchongdadi@163.com")
-	alertMessage.SetHeader("To", "shenchongdadi@163.com")
-	alertMessage.SetHeader("Subject", "You need to change the light intensity")
-	alertMessage.SetBody("text/html", "<b>chong</b> please stand up and do you exp!")
-	mailDialer = mail.NewDialer(config.Host, config.Port, config.Username, config.Password)
+type Sensor struct {
+	Conn *bufio.ReadWriter
 }
 
-func main() {
-	for i := 0; i < 10; i++ {
-		singleSchedule()
-		go func() {
-			if err := mailDialer.DialAndSend(alertMessage); err != nil {
-				fmt.Println(err)
-			}
-		}()
+type Pump struct {
+	Conn *bufio.ReadWriter
+}
+
+type Setup struct {
+	Pump
+	Sensor
+	MailDialer *mail.Dialer
+}
+
+func NewSetup(pump Pump, sensor Sensor, dialer *mail.Dialer) Setup{
+	return Setup{
+		pump, sensor, dialer,
 	}
 }
 
@@ -61,10 +43,9 @@ func readResp(conn *bufio.ReadWriter) {
 		fmt.Println(err)
 	}
 	fmt.Print(resp)
-
 }
 
-func sendCommand(command string) error {
+func sendCommand(conn *bufio.ReadWriter, command string) error {
 	command = command + "\r\n"
 	n, err := conn.WriteString(command)
 	if n != len(command) {
@@ -81,13 +62,82 @@ func sendCommand(command string) error {
 	return nil
 }
 
-func singleSchedule() {
-	sendCommand("record")
-	sendCommand("run 10")
+func (pump *Pump) schedule(time int, rateInitial float32, volumn float32, slope float32)  {
+	command := fmt.Sprintf("schedule %d %.1f %.2f %.2f", time, rateInitial, volumn, slope)
+	if err := sendCommand(pump.Conn, command); err != nil {
+		fmt.Println("schedule error", err)
+	}
+}
+
+func (pump *Pump) run(rate float32)  {
+	command := fmt.Sprintf("run %.1f", rate)
+	if err := sendCommand(pump.Conn, command); err != nil {
+		fmt.Println("run error", err)
+	}
+}
+
+func (pump *Pump) stop()  {
+	if err := sendCommand(pump.Conn, "stop"); err != nil {
+		fmt.Println("stop error", err)
+	}
+}
+
+func (sensor *Sensor) record() {
+	if err := sendCommand(sensor.Conn, "record"); err != nil {
+		fmt.Println("record error", err)
+	}
+}
+
+func (sensor *Sensor) sstop() {
+	if err := sendCommand(sensor.Conn, "sstop"); err != nil {
+		fmt.Println("sstop error", err)
+	}
+}
+
+func (setup *Setup) singleRun(secs int) {
+	setup.record()
+	setup.run(10)
 	time.Sleep(time.Second * 50)
-	sendCommand("schedule 1800 10 2.93 1")
-	time.Sleep(time.Second * 1800)
-	readResp(conn) // waiting for receiving the terminal signal of schedule, otherwise, endless loop
-	sendCommand("sstop")
+	setup.schedule(secs, 10, 2.93, 0.5)
+	time.Sleep(time.Second * time.Duration(secs))
+	readResp(setup.Pump.Conn)
+	setup.sstop()
 	time.Sleep(time.Second * 5)
+}
+
+var setup Setup
+
+func init() {
+	config := Config{}
+	content, err := ioutil.ReadFile("config.yaml")
+	if err != nil {
+		panic(err)
+	}
+	if err = yaml.Unmarshal(content, &config); err != nil {
+		panic(err)
+	}
+	tcpConn, err := net.Dial("tcp", "192.168.2.155:8813")
+	if err != nil {
+		panic(err)
+	}
+	conn := bufio.NewReadWriter(bufio.NewReader(tcpConn), bufio.NewWriter(tcpConn))
+	readResp(conn)
+	mailDialer := mail.NewDialer(config.Host, config.Port, config.Username, config.Password)
+	setup = NewSetup(Pump{conn}, Sensor{conn}, mailDialer)
+}
+
+func main() {
+	alertMessage := mail.NewMessage()
+	alertMessage.SetHeader("From", "shenchongdadi@163.com")
+	alertMessage.SetHeader("To", "shenchongdadi@163.com")
+	alertMessage.SetHeader("Subject", "You need to change the light intensity")
+	alertMessage.SetBody("text/html", "<b>chong</b> please stand up and do you exp!")
+	for i := 0; i < 10; i++ {
+		setup.singleRun(1800)
+		go func() {
+			if err := setup.MailDialer.DialAndSend(alertMessage); err != nil {
+				fmt.Println(err)
+			}
+		}()
+	}
 }
