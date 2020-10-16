@@ -7,6 +7,9 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -81,7 +84,11 @@ func (pump *Pump) stop()  {
 		fmt.Println("stop error", err)
 	}
 }
-
+func (pump *Pump) interrupt()  {
+	if err := sendCommand(pump.Conn, "interrupt"); err != nil {
+		fmt.Println("interrupt error", err)
+	}
+}
 func (sensor *Sensor) record() {
 	if err := sendCommand(sensor.Conn, "record"); err != nil {
 		fmt.Println("record error", err)
@@ -132,12 +139,28 @@ func main() {
 	alertMessage.SetHeader("To", "shenchongdadi@163.com")
 	alertMessage.SetHeader("Subject", "You need to change the light intensity")
 	alertMessage.SetBody("text/html", "<b>chong</b> please stand up and do you exp!")
-	for i := 0; i < 10; i++ {
-		setup.singleRun(1800)
-		go func() {
-			if err := setup.MailDialer.DialAndSend(alertMessage); err != nil {
-				fmt.Println(err)
-			}
-		}()
+	done := make(chan struct{}, 1)
+	go func() {
+		for i := 0; i < 10; i++ {
+			setup.singleRun(1800)
+			go func() {
+				if err := setup.MailDialer.DialAndSend(alertMessage); err != nil {
+					fmt.Println(err)
+				}
+			}()
+		}
+		done<- struct{}{}
+	}()
+	abort := make(chan os.Signal, 1)
+	signal.Notify(abort, syscall.SIGINT)
+	select{
+	case <-abort:
+		setup.interrupt()
+		setup.stop()
+		setup.sstop()
+		os.Exit(1)
+	case <-done:
+		fmt.Println("Program exits without error")
+		os.Exit(0)
 	}
 }
