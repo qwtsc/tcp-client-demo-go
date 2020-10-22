@@ -104,8 +104,8 @@ func (sensor *Sensor) sstop() {
 func (setup *Setup) singleRun(secs int) {
 	setup.record()
 	setup.run(10)
-	time.Sleep(time.Second * 50)
-	setup.schedule(secs, 10, 2.93, 0.5)
+	time.Sleep(time.Second * 60)
+	setup.schedule(secs, 10, 2.93, 1)
 	time.Sleep(time.Second * time.Duration(secs))
 	readResp(setup.Pump.Conn)
 	setup.sstop()
@@ -133,6 +133,15 @@ func init() {
 	setup = NewSetup(Pump{conn}, Sensor{conn}, mailDialer)
 }
 
+func soundRemainder(text string) {
+    conn, err := net.Dial("tcp", "192.168.2.155:8814")
+    defer conn.Close()
+    if err != nil {
+        fmt.Println(err)
+    }
+    conn.Write([]byte(text))
+}
+
 func main() {
 	alertMessage := mail.NewMessage()
 	alertMessage.SetHeader("From", "shenchongdadi@163.com")
@@ -141,13 +150,20 @@ func main() {
 	alertMessage.SetBody("text/html", "<b>chong</b> please stand up and do you exp!")
 	done := make(chan struct{}, 1)
 	go func() {
-		for i := 0; i < 10; i++ {
-			setup.singleRun(1800)
+		for i := 0; i < 5; i++ {
+			setup.singleRun(1200)
 			go func() {
 				if err := setup.MailDialer.DialAndSend(alertMessage); err != nil {
 					fmt.Println(err)
 				}
 			}()
+            go func() {
+                soundRemainder("该改变光强了")
+                time.Sleep(time.Second*10)
+                soundRemainder("该改变光强了")
+                time.Sleep(time.Second*10)
+                soundRemainder("提醒沈冲该改变光强了")
+            }()
 		}
 		done<- struct{}{}
 	}()
