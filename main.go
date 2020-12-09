@@ -32,6 +32,10 @@ type Motor struct {
 	Conn *bufio.ReadWriter
 }
 
+type Sampler struct {
+	Conn *bufio.ReadWriter
+}
+
 type Valve struct {
 	Conn *bufio.ReadWriter
 }
@@ -41,12 +45,13 @@ type Setup struct {
 	Sensor
     Motor
     Valve
+    Sampler
 	MailDialer *mail.Dialer
 }
 
-func NewSetup(pump Pump, sensor Sensor, motor Motor, valve Valve, dialer *mail.Dialer) Setup{
+func NewSetup(pump Pump, sensor Sensor, motor Motor, valve Valve, sampler Sampler, dialer *mail.Dialer) Setup{
 	return Setup{
-		pump, sensor, motor, valve, dialer,
+		pump, sensor, motor, valve, sampler, dialer,
 	}
 }
 
@@ -135,6 +140,33 @@ func (motor *Motor) mstop() {
 	}
 }
 
+func (sampler *Sampler) turnX(dist int) {
+	command := fmt.Sprintf("turnx %d", dist)
+	if err := sendCommand(sampler.Conn, command); err != nil {
+		fmt.Println("run error", err)
+	}
+}
+
+func (sampler *Sampler) turnXY(dx int, dy int) {
+	command := fmt.Sprintf("turnxy %d %d", dx, dy)
+	if err := sendCommand(sampler.Conn, command); err != nil {
+		fmt.Println("run error", err)
+	}
+}
+
+func (sampler *Sampler) turnY(dist int) {
+	command := fmt.Sprintf("turny %d", dist)
+	if err := sendCommand(sampler.Conn, command); err != nil {
+		fmt.Println("run error", err)
+	}
+}
+
+func (sampler *Sampler) turn0() {
+	if err := sendCommand(sampler.Conn, "turn0"); err != nil {
+		fmt.Println("run error", err)
+	}
+}
+
 func (sensor *Sensor) record() {
 	if err := sendCommand(sensor.Conn, "record"); err != nil {
 		fmt.Println("record error", err)
@@ -163,6 +195,18 @@ func (setup *Setup) testAbsorbanceRun() {
         setup.stop()
         setup.sstop()
         setup.Valve.closeV(vPos)
+    }
+}
+
+func (setup *Setup) testSamplerMoving() {
+    setup.turn0()
+    for x:=-101; x<0; x-=18 {
+        for y:=83; y>0; y-=18 {
+            setup.turnXY(x, y)
+	        time.Sleep(time.Second * 2)
+            setup.turnXY(0, 0)
+	        time.Sleep(time.Second * 2)
+        }
     }
 }
 
@@ -221,7 +265,7 @@ func init() {
 	readResp(conn)
     readResp(connM)
 	mailDialer := mail.NewDialer(config.Host, config.Port, config.Username, config.Password)
-	setup = NewSetup(Pump{conn}, Sensor{conn}, Motor{connM}, Valve{conn}, mailDialer)
+	setup = NewSetup(Pump{conn}, Sensor{conn}, Motor{connM}, Valve{conn}, Sampler{connM},mailDialer)
 }
 
 func soundRemainder(text string) {
@@ -242,7 +286,8 @@ func main() {
 	alertMessage.SetBody("text/html", "<b>chong</b> please stand up and do you exp!")
 	done := make(chan struct{}, 1)
     go func() {
-        setup.autoRun(1800)
+        // setup.autoRun(1800)
+        setup.testSamplerMoving()
         done<- struct{}{}
     }()
 //	go func() {
