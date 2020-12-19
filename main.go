@@ -200,11 +200,11 @@ func (setup *Setup) testAbsorbanceRun() {
 
 func (setup *Setup) testSamplerMoving() {
     setup.turn0()
-    for x:=-101; x<0; x-=18 {
-        for y:=83; y>0; y-=18 {
+    for x:=0; x>=-76; x-=19 {
+        for y:=0; y<=162; y+=54 {
             setup.turnXY(x, y)
 	        time.Sleep(time.Second * 2)
-            setup.turnXY(0, 0)
+            setup.turnXY(0, 190)
 	        time.Sleep(time.Second * 2)
         }
     }
@@ -216,6 +216,33 @@ func (setup *Setup) closeAllValves() {
     }
 }
 
+func (setup *Setup) testRun() {
+    setup.Valve.openV(0)
+    setup.closeAllValves()
+    rates := [5]float32{0.2, 0.4, 0.6, 0.8, 1}
+    for y:=0; y<=162; y+=54 {
+        rateIndex := 0
+        for x:=0; x>=-76; x-=19 {
+            rate := rates[rateIndex]
+            residenceTime := int(7/rate)
+            sampleTime := int(3/rate)
+            setup.Pump.run(rate)
+            time.Sleep(time.Duration(residenceTime) * time.Minute)
+            // start sampler
+            setup.turnXY(x, y)
+            time.Sleep(time.Duration(sampleTime) * time.Minute)
+            setup.Pump.stop()
+            // waste beaker
+            setup.turnXY(0, 190)
+            // change flowrate
+            rateIndex += 1
+        }
+        setup.Motor.antiClock(1000)
+        time.Sleep(60*time.Second)
+    }
+    setup.Motor.clock(3000)
+    time.Sleep(60*time.Second)
+}
 func (setup *Setup) autoRun(secs int) {
     setup.closeAllValves()
     for vPos := 0; vPos < 5; vPos++ {
@@ -287,7 +314,7 @@ func main() {
 	done := make(chan struct{}, 1)
     go func() {
         // setup.autoRun(1800)
-        setup.testSamplerMoving()
+        setup.testRun()
         done<- struct{}{}
     }()
 //	go func() {
